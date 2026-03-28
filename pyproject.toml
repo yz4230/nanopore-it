@@ -1,0 +1,22 @@
+[project]
+name = "nanopore-it"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "matplotlib>=3.10.8",
+    "mpld3>=0.5.12",
+    "numpy>=2.4.3",
+    "pandas>=2.3.3",
+    "plotly>=6.6.0",
+    "scipy>=1.17.1",
+    "streamlit>=1.55.0",
+    "streamlit-plotly-events>=0.0.6",
+]
+
+[dependency-groups]
+dev = ["ruff>=0.15.8", "ty>=0.0.26", "watchdog>=6.0.0"]
+
+[tool.ty.environment]
+python = ".venv"
