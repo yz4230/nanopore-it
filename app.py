@@ -10,8 +10,7 @@ import scipy
 from streamlit.elements.plotly_chart import PlotlyState
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from analysis import AnalysisConfig, AnalysisTables, InputConfig, analyze_tables
-from auto_detect_clears import detect_clear_regions
+import nanopore_it
 
 
 @st.cache_data(max_entries=1)
@@ -60,7 +59,7 @@ def draw_signal(
 @st.cache_data(max_entries=1)
 def baseline_fft(
     signal: npt.NDArray[np.float64],
-    result: AnalysisTables,
+    result: nanopore_it.AnalysisTables,
     adc_samplerate: float,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     signal = signal.copy()
@@ -81,8 +80,8 @@ def baseline_fft(
     return baseline_spectr, freqs
 
 
-cached_detect_clear_regions = st.cache_data(max_entries=1)(detect_clear_regions)
-cached_analyze_tables = st.cache_data(max_entries=1)(analyze_tables)
+detect_clear_regions = st.cache_data(max_entries=1)(nanopore_it.detect_clear_regions)
+analyze_tables = st.cache_data(max_entries=1)(nanopore_it.analyze_tables)
 
 
 def get_selected_event_index(state: PlotlyState) -> int:
@@ -156,7 +155,7 @@ def main():
         baseline_std = float(np.std(signal))
 
         if auto_detect_clear:
-            regions = cached_detect_clear_regions(
+            regions = detect_clear_regions(
                 signal,
                 baseline=baseline,
                 baseline_std=baseline_std,
@@ -179,10 +178,11 @@ def main():
             )
         )
 
-        result = cached_analyze_tables(
+        result = nanopore_it.analyze_tables(
             data=signal,
-            iconf=InputConfig(adc_samplerate_hz=int(adc_samplerate)),
-            aconf=AnalysisConfig(
+            conf=nanopore_it.AnalysisConfig(
+                adc_samplerate_hz=int(adc_samplerate),
+                lpf_cutoff_hz=int(lpf_cutoff),
                 baseline_a=baseline,
                 baseline_std_a=baseline_std,
             ),

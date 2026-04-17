@@ -9,7 +9,7 @@ from typing import Optional, TypedDict
 
 import numpy as np
 import numpy.typing as npt
-from scipy.ndimage import median_filter as spmedfilt
+from scipy.ndimage import median_filter
 
 __all__ = ["detect_cusumv2", "CUSUMResultDict"]
 
@@ -110,7 +110,7 @@ def _central_moving_median(
     padded[-window:] = data[-window:]
 
     # Apply median filter
-    filtered = spmedfilt(padded, full_window)
+    filtered = median_filter(padded, full_window)
 
     return filtered[window:-window]
 
