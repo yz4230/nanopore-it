@@ -98,7 +98,6 @@ def get_selected_event_index(state: PlotlyState) -> int:
 
 def authenticate():
     STATE_KEY: Final[str] = "auth_status"
-    print(dict(st.session_state))
 
     auth_status = st.session_state.get(STATE_KEY, False)
     if auth_status:
