@@ -1,3 +1,5 @@
+import os
+import secrets
 from typing import Final
 
 import numpy as np
@@ -95,7 +97,35 @@ def get_selected_event_index(state: PlotlyState) -> int:
     return point_indices[0]
 
 
+def authenticate():
+    STATE_KEY: Final[str] = "auth_status"
+    print(dict(st.session_state))
+
+    auth_status = st.session_state.get(STATE_KEY, False)
+    if auth_status:
+        return
+
+    with st.form("login_form"):
+        input_password = st.text_input("Enter password", type="password")
+        submit = st.form_submit_button("Login")
+
+    if submit:
+        password = os.getenv("APP_PASSWORD", "")
+        assert password, "No password set in environment variable APP_PASSWORD"
+
+        if secrets.compare_digest(input_password, password):
+            st.session_state[STATE_KEY] = True
+            st.rerun()
+            return
+        else:
+            st.error("Incorrect password")
+
+    st.stop()
+
+
 def main():
+    authenticate()
+
     st.set_page_config(page_title="Nanopore Analysis", layout="wide")
 
     uploaded_file = st.sidebar.file_uploader("Upload your data", type=["opt"])
