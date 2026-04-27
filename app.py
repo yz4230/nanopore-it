@@ -6,7 +6,6 @@ import numpy as np
 import numpy.typing as npt
 import plotly.graph_objects as go
 import streamlit as st
-import scipy
 from streamlit.elements.plotly_chart import PlotlyState
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
@@ -16,18 +15,18 @@ import nanopore_it
 @st.cache_data(max_entries=1)
 def load_data(
     uploaded_file: UploadedFile,
+    *,
     lpf_cutoff: float,
     adc_samplerate: float,
     invert: bool,
 ) -> npt.NDArray[np.float64]:
     buf = uploaded_file.read()
-    raw = np.frombuffer(buf, dtype=np.dtype(">d"))
-    wn = round(lpf_cutoff / (adc_samplerate / 2), 4)
-    b, a = scipy.signal.bessel(4, wn, btype="low")
-    filt = scipy.signal.filtfilt(b, a, raw)
-    if invert:
-        filt = -filt
-    return filt
+    return nanopore_it.load_opt_file(
+        data=buf,
+        lpf_cutoff=lpf_cutoff,
+        adc_samplerate=adc_samplerate,
+        invert=invert,
+    )
 
 
 @st.cache_data(max_entries=1)
@@ -149,7 +148,12 @@ def main():
     )
 
     if uploaded_file is not None:
-        signal = load_data(uploaded_file, lpf_cutoff, adc_samplerate, invert)
+        signal = load_data(
+            uploaded_file,
+            lpf_cutoff=lpf_cutoff,
+            adc_samplerate=adc_samplerate,
+            invert=invert,
+        )
         baseline = float(np.median(signal))
         baseline_std = float(np.std(signal))
 
