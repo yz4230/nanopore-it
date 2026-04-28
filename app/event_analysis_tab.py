@@ -11,6 +11,7 @@ import nanopore_it
 
 
 LINEAR_LINE: Final[dict[str, str | int]] = {"shape": "linear", "smoothing": 0}
+EVENT_HIGHLIGHT_COLOR: Final[str] = "rgba(255, 127, 14, 0.18)"
 
 fft = st.cache_data(ttl=timedelta(minutes=5))(nanopore_it.fft)
 downsample = st.cache_data(ttl=timedelta(minutes=5))(nanopore_it.downsample)
@@ -22,6 +23,7 @@ def draw_signal(
     baseline: float,
     adc_samplerate: float,
     downsampling_factor: int,
+    event_ranges: tuple[tuple[float, float], ...],
 ) -> go.Figure:
     x = np.arange(len(signal)) / adc_samplerate
     x = x[::downsampling_factor]
@@ -41,6 +43,14 @@ def draw_signal(
         line_dash="dash",
         line_color="red",
     )
+    for start_time, end_time in event_ranges:
+        fig.add_vrect(
+            x0=start_time,
+            x1=end_time,
+            fillcolor=EVENT_HIGHLIGHT_COLOR,
+            line_width=0,
+            layer="below",
+        )
     fig.update_layout(
         xaxis_title="Time (s)",
         yaxis_title="Amplitude",
@@ -70,12 +80,27 @@ def render_event_analysis_tab(
     downsampling_factor: int,
     result: nanopore_it.AnalysisTables,
 ) -> int:
+    highlight_events = st.checkbox("Highlight detected event regions", value=False)
+    if highlight_events and not result.events.empty:
+        event_ranges = tuple(
+            (
+                int(start_point) / adc_samplerate,
+                (int(end_point) + 1) / adc_samplerate,
+            )
+            for start_point, end_point in result.events[
+                ["start_point", "end_point"]
+            ].itertuples(index=False, name=None)
+        )
+    else:
+        event_ranges = ()
+
     st.plotly_chart(
         draw_signal(
             signal,
             baseline,
             adc_samplerate,
             downsampling_factor,
+            event_ranges,
         )
     )
 
