@@ -1,3 +1,4 @@
+from datetime import timedelta
 import os
 import secrets
 from typing import Final
@@ -10,6 +11,9 @@ from streamlit.elements.plotly_chart import PlotlyState
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 import nanopore_it
+
+
+LINEAR_LINE: Final[dict[str, str | int]] = {"shape": "linear", "smoothing": 0}
 
 
 @st.cache_data(max_entries=1)
@@ -40,7 +44,15 @@ def draw_signal(
     x = x[::downsampling_factor]
     signal = signal[::downsampling_factor]
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=x, y=signal, mode="lines", name="Signal"))
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=signal,
+            mode="lines",
+            line=LINEAR_LINE,
+            name="Signal",
+        )
+    )
     fig.add_hline(
         y=baseline,
         line_dash="dash",
@@ -55,32 +67,10 @@ def draw_signal(
     return fig
 
 
-@st.cache_data(max_entries=1)
-def baseline_fft(
-    signal: npt.NDArray[np.float64],
-    result: nanopore_it.AnalysisTables,
-    adc_samplerate: float,
-) -> tuple[npt.NDArray, npt.NDArray]:
-    signal = signal.copy()
-
-    for ev in result.events.itertuples():
-        s, e = int(ev.start_point), int(ev.end_point)  # ty:ignore[unresolved-attribute]
-        signal[s:e] = np.nan
-    signal = signal[~np.isnan(signal)]
-    baseline_spectr = np.abs(np.fft.rfft(signal))
-    freqs = np.fft.rfftfreq(len(signal), d=1 / adc_samplerate)
-
-    max_points: Final[int] = 10000
-    if len(baseline_spectr) > max_points:
-        factor = len(baseline_spectr) // max_points
-        baseline_spectr = baseline_spectr[::factor]
-        freqs = freqs[::factor]
-
-    return baseline_spectr, freqs
-
-
 detect_clear_regions = st.cache_data(max_entries=1)(nanopore_it.detect_clear_regions)
 analyze_tables = st.cache_data(max_entries=1)(nanopore_it.analyze_tables)
+fft = st.cache_data(ttl=timedelta(minutes=5))(nanopore_it.fft)
+downsample = st.cache_data(ttl=timedelta(minutes=5))(nanopore_it.downsample)
 
 
 def get_selected_event_index(state: PlotlyState) -> int:
@@ -128,6 +118,9 @@ def main():
     uploaded_file = st.sidebar.file_uploader("Upload your data", type=["opt"])
     adc_samplerate = st.sidebar.number_input("ADC Samplerate (kHz)", value=250) * 1e3
     lpf_cutoff = st.sidebar.number_input("LPF Cutoff (kHz)", value=100) * 1e3
+    downsampling_factor = st.sidebar.number_input(
+        "Downsampling factor", value=1024, step=1024, min_value=1024
+    )
     invert = st.sidebar.checkbox("Invert signal", value=True)
 
     auto_detect_clear = st.sidebar.checkbox("Auto-detect clear signal", value=True)
@@ -143,9 +136,10 @@ def main():
             "Extra relaxation (ms)", value=10.0, step=1.0
         )
 
-    downsampling_factor = st.sidebar.number_input(
-        "Downsampling factor", value=1024, step=1024, min_value=1024
-    )
+    st.sidebar.divider()
+
+    cusum_stepsize = st.sidebar.number_input("CUSUM stepsize", value=1.0, step=1.0)
+    cusum_threshold = st.sidebar.number_input("CUSUM threshold", value=30.0, step=1.0)
 
     if uploaded_file is not None:
         signal = load_data(
@@ -188,6 +182,8 @@ def main():
                 lpf_cutoff_hz=int(lpf_cutoff),
                 baseline_a=baseline,
                 baseline_std_a=baseline_std,
+                cusum_stepsize=int(cusum_stepsize),
+                cusum_threshhold=int(cusum_threshold),
             ),
         )
 
@@ -205,7 +201,6 @@ def main():
                 x=result.events["dwell"],
                 y=result.events["delli"],
                 mode="markers",
-                line_shape="linear",
                 name="Events",
             )
         )
@@ -227,7 +222,7 @@ def main():
         selected_event_index = get_selected_event_index(chart_event)
         event = result.events.iloc[selected_event_index]
         fig = go.Figure()
-        start, end = (int(event["start_point"]), int(event["end_point"]))
+        start, end = int(event.start_point) + 1, int(event.end_point)
         around_samples = (end - start) // 3
         chart_start = max(0, start - around_samples)
         chart_end = min(len(signal), end + around_samples)
@@ -238,13 +233,34 @@ def main():
                 x=x,
                 y=y,
                 mode="lines",
-                line_shape="linear",
+                line=LINEAR_LINE,
                 name="Event Signal",
             )
         )
         fig.add_hline(y=baseline, line_dash="dash", line_color="red")
         fig.add_vline(x=(start / adc_samplerate), line_dash="dash", line_color="green")
         fig.add_vline(x=(end / adc_samplerate), line_dash="dash", line_color="green")
+
+        states = result.states
+        selected_states = states[states["parent_index"] == selected_event_index]
+        subevent_colors = ("rgba(30, 144, 255, 0.18)", "rgba(138, 43, 226, 0.18)")
+        for state in selected_states.itertuples(index=False):
+            start, end = int(state.start_point) + 1, int(state.end_point)
+            if end <= chart_start or start >= chart_end:
+                continue
+
+            x0 = max(start, chart_start) / adc_samplerate
+            x1 = min(end, chart_end) / adc_samplerate
+            color = subevent_colors[int(state.index) % len(subevent_colors)]
+            fig.add_vrect(
+                x0=x0,
+                x1=x1,
+                fillcolor=color,
+                line_color="rgba(65, 105, 225, 0.85)",
+                line_width=1,
+                layer="below",
+            )
+
         fig.update_layout(
             title=f"Event {selected_event_index}: Dwell={event['dwell']:.3e}s, Delli={event['delli']:.3e}pA",
             xaxis_title="Time (s)",
@@ -254,11 +270,25 @@ def main():
         )
         selected.plotly_chart(fig, width="stretch")
 
-        baseline_spectr, baseline_freqs = baseline_fft(signal, result, adc_samplerate)
+        without_events = signal.copy()
+        for _, ev in result.events.iterrows():
+            start, end = int(ev.start_point), int(ev.end_point) + 1  # include end point
+            without_events[start:end] = np.nan
+        without_events = without_events[~np.isnan(without_events)]
+        baseline_spectr, baseline_freqs = fft(without_events, fs=int(adc_samplerate))
+        baseline_spectr, baseline_freqs = downsample(
+            baseline_freqs,
+            baseline_spectr,
+            max_points=10000,
+        )
+        start, end = int(event.start_point) + 1, int(event.end_point)
         event_signal = signal[start:end]
-        # event_signal -= np.median(event_signal)
-        event_spectr = np.abs(np.fft.rfft(event_signal))
-        event_freqs = np.fft.rfftfreq(len(event_signal), d=1 / adc_samplerate)
+        event_spectr, event_freqs = fft(event_signal, fs=int(adc_samplerate))
+        event_spectr, event_freqs = downsample(
+            event_freqs,
+            event_spectr,
+            max_points=10000,
+        )
 
         fig = go.Figure()
         fig.add_trace(
@@ -266,7 +296,7 @@ def main():
                 x=baseline_freqs,
                 y=baseline_spectr,
                 mode="lines",
-                line_shape="linear",
+                line=LINEAR_LINE,
                 name="Baseline Spectrum",
             )
         )
@@ -275,7 +305,7 @@ def main():
                 x=event_freqs,
                 y=event_spectr,
                 mode="lines",
-                line_shape="linear",
+                line=LINEAR_LINE,
                 name="Event Spectrum",
             )
         )
