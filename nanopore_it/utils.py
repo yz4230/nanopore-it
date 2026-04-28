@@ -13,7 +13,7 @@ def load_opt_file(
     invert: bool = False,
     cut_dc: bool = False,
 ) -> npt.NDArray[np.float64]:
-    raw = np.frombuffer(data, dtype=np.dtype(">d"))
+    raw = np.frombuffer(data, dtype=np.dtype(">d")).astype(np.float32)
     if invert:
         raw = -raw
     if cut_dc:
