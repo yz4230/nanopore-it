@@ -19,6 +19,9 @@ def _segment_statistics(
     segment: npt.NDArray[np.float64],
 ) -> tuple[float, float, float, float]:
     """Compute (mean, stdev, skewness, kurtosis) without scipy.stats overhead."""
+    if segment.size == 0:
+        return np.nan, np.nan, np.nan, np.nan
+
     mean = float(np.mean(segment))
     d = segment - mean
     d2 = d * d
@@ -214,7 +217,7 @@ def analyze_tables(
 
         end_points[event_index] = end_point
 
-    valid_mask = (start_points != 0) & (end_points != 0)
+    valid_mask = (start_points != 0) & (end_points != 0) & (start_points < end_points)
     start_points = start_points[valid_mask]
     end_points = end_points[valid_mask]
     number_of_events = start_points.size
@@ -371,6 +374,9 @@ def analyze_tables(
         for state_index in range(merged_cusum_res["nStates"]):
             state_start = int(merged_cusum_res["starts"][state_index])
             state_end = int(merged_cusum_res["starts"][state_index + 1])
+            if state_start >= state_end:
+                continue
+
             state_data = trough[state_start:state_end]
             state_mean, state_stdev, state_skew, state_kurt = _segment_statistics(
                 state_data
