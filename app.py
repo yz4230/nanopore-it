@@ -35,6 +35,11 @@ analyze_tables = st.cache_data(max_entries=1)(nanopore_it.analyze_tables)
 
 def authenticate():
     STATE_KEY: Final[str] = "auth_status"
+    password = os.getenv("APP_PASSWORD")
+
+    if password is None:
+        # No password set, allow access without authentication
+        return
 
     auth_status = st.session_state.get(STATE_KEY, False)
     if auth_status:
@@ -45,7 +50,6 @@ def authenticate():
         submit = st.form_submit_button("Login")
 
     if submit:
-        password = os.getenv("APP_PASSWORD", "")
         assert password, "No password set in environment variable APP_PASSWORD"
 
         if secrets.compare_digest(input_password, password):
