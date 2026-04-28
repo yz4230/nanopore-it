@@ -12,6 +12,8 @@ import nanopore_it
 
 LINEAR_LINE: Final[dict[str, str | int]] = {"shape": "linear", "smoothing": 0}
 EVENT_HIGHLIGHT_COLOR: Final[str] = "rgba(255, 127, 14, 0.18)"
+SELECTED_EVENT_HIGHLIGHT_COLOR: Final[str] = "rgba(44, 160, 44, 0.32)"
+SELECTED_EVENT_LINE_COLOR: Final[str] = "rgba(44, 160, 44, 0.95)"
 
 fft = st.cache_data(ttl=timedelta(minutes=5))(nanopore_it.fft)
 downsample = st.cache_data(ttl=timedelta(minutes=5))(nanopore_it.downsample)
@@ -24,6 +26,7 @@ def draw_signal(
     adc_samplerate: float,
     downsampling_factor: int,
     event_ranges: tuple[tuple[float, float], ...],
+    selected_event_range: tuple[float, float] | None,
 ) -> go.Figure:
     x = np.arange(len(signal)) / adc_samplerate
     x = x[::downsampling_factor]
@@ -49,6 +52,16 @@ def draw_signal(
             x1=end_time,
             fillcolor=EVENT_HIGHLIGHT_COLOR,
             line_width=0,
+            layer="below",
+        )
+    if selected_event_range is not None:
+        start_time, end_time = selected_event_range
+        fig.add_vrect(
+            x0=start_time,
+            x1=end_time,
+            fillcolor=SELECTED_EVENT_HIGHLIGHT_COLOR,
+            line_color=SELECTED_EVENT_LINE_COLOR,
+            line_width=1,
             layer="below",
         )
     fig.update_layout(
@@ -81,6 +94,8 @@ def render_event_analysis_tab(
     result: nanopore_it.AnalysisTables,
 ) -> int:
     highlight_events = st.checkbox("Highlight detected event regions", value=False)
+    signal_chart = st.empty()
+
     if highlight_events and not result.events.empty:
         event_ranges = tuple(
             (
@@ -94,17 +109,18 @@ def render_event_analysis_tab(
     else:
         event_ranges = ()
 
-    st.plotly_chart(
-        draw_signal(
-            signal,
-            baseline,
-            adc_samplerate,
-            downsampling_factor,
-            event_ranges,
-        )
-    )
-
     if result.events.empty:
+        signal_chart.plotly_chart(
+            draw_signal(
+                signal,
+                baseline,
+                adc_samplerate,
+                downsampling_factor,
+                event_ranges,
+                None,
+            ),
+            width="stretch",
+        )
         st.warning("No events detected.")
         return 0
 
@@ -139,6 +155,22 @@ def render_event_analysis_tab(
     selected_event_index = get_selected_event_index(chart_event)
     selected_event_index = min(selected_event_index, len(result.events) - 1)
     event = result.events.iloc[selected_event_index]
+    selected_event_range = (
+        int(event.start_point) / adc_samplerate,
+        (int(event.end_point) + 1) / adc_samplerate,
+    )
+    signal_chart.plotly_chart(
+        draw_signal(
+            signal,
+            baseline,
+            adc_samplerate,
+            downsampling_factor,
+            event_ranges,
+            selected_event_range,
+        ),
+        width="stretch",
+    )
+
     fig = go.Figure()
     start, end = int(event.start_point) + 1, int(event.end_point)
     around_samples = (end - start) // 3
