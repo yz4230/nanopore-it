@@ -43,6 +43,56 @@ PARAMETER_STORE_PATH: Final[Path] = Path(".streamlit/file_parameters.json")
 PARAMETER_WIDGET_PREFIX: Final[str] = "analysis_parameter_"
 PARAMETER_FILENAME_STATE_KEY: Final[str] = "analysis_parameter_filename"
 BASELINE_METHOD_OPTIONS: Final[tuple[str, ...]] = ("Q1", "Q2", "Manual")
+PARAMETER_HELP: Final[dict[str, str]] = {
+    "adc_samplerate_khz": (
+        "OPTファイルの取得サンプリング周波数です。値が実際とずれると、dwellやdtなど"
+        "時間に換算される結果が比例してずれます。"
+    ),
+    "lpf_cutoff_khz": (
+        "読み込み時に適用するローパスフィルタのカットオフ周波数です。低くすると"
+        "高周波ノイズは減りますが、短いイベントや急な変化がなまりやすくなります。"
+    ),
+    "downsampling_factor": (
+        "表示用トレースを間引く倍率です。大きくすると描画は軽くなりますが、"
+        "短いイベントや細かな波形変化は見えにくくなります。解析テーブルの計算には影響しません。"
+    ),
+    "invert": (
+        "電流の符号を反転して読み込みます。イベントが下向きのブロッケードとして"
+        "扱われる向きに合わせてください。向きが逆だとイベント検出がうまく働きません。"
+    ),
+    "baseline_method": (
+        "ベースライン電流の推定方法です。Q1は25パーセンタイル、Q2は中央値、Manualは"
+        "指定値を使います。ベースラインはdelli、frac、イベント境界、状態解析の基準になります。"
+    ),
+    "manual_baseline_a": (
+        "Baseline currentでManualを選んだときに使うベースライン電流です。値が高すぎる/"
+        "低すぎると、delliやfracが系統的にずれ、イベントの開始・終了位置にも影響します。"
+    ),
+    "auto_detect_clear": (
+        "大きなクリアシグナルやスパイクを自動検出し、ベースライン推定から除外します。"
+        "有効にするとスパイクに引っ張られにくくなりますが、条件が強すぎると有効な信号も除外されます。"
+    ),
+    "spike_std_threshold": (
+        "スパイクとみなすしきい値を標準偏差の倍率で指定します。小さくすると除外領域が"
+        "増え、大きくすると強いスパイクだけが除外されます。"
+    ),
+    "baseline_window_std": (
+        "スパイク前後でベースライン付近とみなす幅を標準偏差の倍率で指定します。小さくすると"
+        "除外領域は狭くなり、大きくするとスパイク周辺を広めに除外しやすくなります。"
+    ),
+    "extra_relaxation_ms": (
+        "スパイク後に追加で除外する緩和時間です。長くするとスパイク後の戻りきらない区間を"
+        "ベースライン推定から外せますが、長すぎると解析に使える信号が減ります。"
+    ),
+    "cusum_stepsize": (
+        "CUSUMが想定する状態変化量をベースライン標準偏差の倍率で指定します。小さくすると"
+        "小さな段差にも敏感になり、大きくすると明瞭な状態変化だけを検出します。"
+    ),
+    "cusum_threshold": (
+        "CUSUMの変化点検出しきい値です。小さくすると状態分割が増えやすく、大きくすると"
+        "分割は減りますが弱い変化を見落としやすくなります。"
+    ),
+}
 
 BaselineMethod = Literal["Q1", "Q2", "Manual"]
 
@@ -207,6 +257,7 @@ def main():
         st.sidebar.number_input(
             "ADC Samplerate (kHz)",
             key=parameter_widget_key("adc_samplerate_khz"),
+            help=PARAMETER_HELP["adc_samplerate_khz"],
         )
         * 1e3
     )
@@ -214,6 +265,7 @@ def main():
         st.sidebar.number_input(
             "LPF Cutoff (kHz)",
             key=parameter_widget_key("lpf_cutoff_khz"),
+            help=PARAMETER_HELP["lpf_cutoff_khz"],
         )
         * 1e3
     )
@@ -222,13 +274,19 @@ def main():
         step=1024,
         min_value=1024,
         key=parameter_widget_key("downsampling_factor"),
+        help=PARAMETER_HELP["downsampling_factor"],
     )
-    invert = st.sidebar.checkbox("Invert signal", key=parameter_widget_key("invert"))
+    invert = st.sidebar.checkbox(
+        "Invert signal",
+        key=parameter_widget_key("invert"),
+        help=PARAMETER_HELP["invert"],
+    )
 
     baseline_method = st.sidebar.selectbox(
         "Baseline current",
         BASELINE_METHOD_OPTIONS,
         key=parameter_widget_key("baseline_method"),
+        help=PARAMETER_HELP["baseline_method"],
     )
     baseline_method = cast(BaselineMethod, baseline_method)
     if baseline_method == "Manual":
@@ -237,6 +295,7 @@ def main():
             step=1e-12,
             format="%.3e",
             key=parameter_widget_key("manual_baseline_a"),
+            help=PARAMETER_HELP["manual_baseline_a"],
         )
     manual_baseline_a = float(
         st.session_state.get(
@@ -246,7 +305,9 @@ def main():
     )
 
     auto_detect_clear = st.sidebar.checkbox(
-        "Auto-detect clear signal", key=parameter_widget_key("auto_detect_clear")
+        "Auto-detect clear signal",
+        key=parameter_widget_key("auto_detect_clear"),
+        help=PARAMETER_HELP["auto_detect_clear"],
     )
 
     if auto_detect_clear:
@@ -254,25 +315,34 @@ def main():
             "Spike threshold (std devs)",
             step=0.1,
             key=parameter_widget_key("spike_std_threshold"),
+            help=PARAMETER_HELP["spike_std_threshold"],
         )
         baseline_window_std = st.sidebar.number_input(
             "Baseline window width (std devs)",
             step=0.1,
             key=parameter_widget_key("baseline_window_std"),
+            help=PARAMETER_HELP["baseline_window_std"],
         )
         extra_relaxation_ms = st.sidebar.number_input(
             "Extra relaxation (ms)",
             step=1.0,
             key=parameter_widget_key("extra_relaxation_ms"),
+            help=PARAMETER_HELP["extra_relaxation_ms"],
         )
 
     st.sidebar.divider()
 
     cusum_stepsize = st.sidebar.number_input(
-        "CUSUM stepsize", step=1.0, key=parameter_widget_key("cusum_stepsize")
+        "CUSUM stepsize",
+        step=1.0,
+        key=parameter_widget_key("cusum_stepsize"),
+        help=PARAMETER_HELP["cusum_stepsize"],
     )
     cusum_threshold = st.sidebar.number_input(
-        "CUSUM threshold", step=1.0, key=parameter_widget_key("cusum_threshold")
+        "CUSUM threshold",
+        step=1.0,
+        key=parameter_widget_key("cusum_threshold"),
+        help=PARAMETER_HELP["cusum_threshold"],
     )
 
     if uploaded_filename is not None:
