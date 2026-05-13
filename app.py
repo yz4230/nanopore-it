@@ -14,6 +14,7 @@ import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from app.event_analysis_tab import render_event_analysis_tab
+from app.event_filter_tab import render_event_filter_tab
 from app.scalogram_tab import render_scalogram_tab
 import nanopore_it
 
@@ -401,7 +402,17 @@ def main():
             ),
         )
 
-        event_tab, scalogram_tab = st.tabs(["Event analysis", "Scalogram"])
+        event_filter_tab, event_tab, scalogram_tab = st.tabs(
+            ["Event filter", "Event analysis", "Scalogram"]
+        )
+
+        with event_filter_tab:
+            filtered_result = render_event_filter_tab(
+                signal=signal,
+                adc_samplerate=adc_samplerate,
+                result=result,
+                source_filename=uploaded_filename,
+            )
 
         with event_tab:
             selected_event_index = render_event_analysis_tab(
@@ -409,7 +420,7 @@ def main():
                 baseline=baseline,
                 adc_samplerate=adc_samplerate,
                 downsampling_factor=downsampling_factor,
-                result=result,
+                result=filtered_result,
             )
 
         with scalogram_tab:
@@ -418,7 +429,7 @@ def main():
                 adc_samplerate=adc_samplerate,
                 baseline=baseline,
                 lpf_cutoff=lpf_cutoff,
-                result=result,
+                result=filtered_result,
                 selected_event_index=selected_event_index,
             )
 

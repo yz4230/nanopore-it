@@ -123,16 +123,30 @@ def draw_signal(
     return fig
 
 
-def get_selected_event_index(state: PlotlyState) -> int:
+def get_selected_event_index(
+    state: PlotlyState,
+    event_indices: npt.NDArray[np.int64],
+) -> int:
     selection = state.get("selection")
     if selection is None:
         return 0
+
+    points = selection.get("points")
+    if points is not None and len(points) > 0:
+        customdata = points[0].get("customdata")
+        if customdata is not None:
+            return int(customdata)
+
     point_indices = selection.get("point_indices")
     if point_indices is None:
         return 0
     if len(point_indices) == 0:
         return 0
-    return point_indices[0]
+
+    selected_point_index = point_indices[0]
+    if selected_point_index >= len(event_indices):
+        return 0
+    return int(event_indices[selected_point_index])
 
 
 def render_event_analysis_tab(
@@ -178,17 +192,20 @@ def render_event_analysis_tab(
         selected = st.container()
         selector = st.container()
 
+    filtered_events = result.events
+    filtered_event_indices = filtered_events.index.to_numpy(dtype=np.int64)
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=result.events["dwell"],
-            y=result.events["delli"],
+            x=filtered_events["dwell"],
+            y=filtered_events["delli"],
+            customdata=filtered_event_indices,
             mode="markers",
             name="Events",
         )
     )
     fig.update_layout(
-        title=f"Event Dwell Time vs Delli (n={len(result.events)})",
+        title=f"Event Dwell Time vs Delli (n={len(filtered_events)})",
         xaxis_title="Dwell Time (µs)",
         yaxis_title="Delli (pA)",
         xaxis={"showgrid": True, "type": "log"},
@@ -202,7 +219,7 @@ def render_event_analysis_tab(
         selection_mode="points",
     )
 
-    selected_event_index = get_selected_event_index(chart_event)
+    selected_event_index = get_selected_event_index(chart_event, filtered_event_indices)
     selected_event_index = min(selected_event_index, len(result.events) - 1)
     event = result.events.iloc[selected_event_index]
     selected_event_range = (
@@ -265,7 +282,7 @@ def render_event_analysis_tab(
         )
 
     fig.update_layout(
-        title=f"Event {selected_event_index}: Dwell={event['dwell']:.3e}s, Delli={event['delli']:.3e}pA",
+        title=f"Event {selected_event_index}: Dwell={event['dwell']:.3e}µs, Delli={event['delli']:.3e}pA",
         xaxis_title="Time (s)",
         yaxis_title="Amplitude",
         xaxis={"showgrid": True},
