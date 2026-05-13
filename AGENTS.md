@@ -14,6 +14,8 @@ Use `uv` for all environment and command execution.
 - `uv run ruff format .`: format Python files.
 - `uv run ty check`: run static type checks using the configured `.venv` environment.
 
+Do not start the Streamlit server just to verify changes unless explicitly requested. For routine validation, `uv run ruff check .` and `uv run ty check` are sufficient.
+
 ## Coding Style & Naming Conventions
 
 Follow the existing Python style: 4-space indentation, type hints on public helpers and numerical arrays, and dataclasses for structured configuration/results. Prefer NumPy/Pandas/SciPy vectorized operations in analysis paths; avoid slow Python loops over large signal arrays unless profiling justifies them. Keep Streamlit-expensive operations cached with `@st.cache_data` when inputs are stable. Use `snake_case` for functions and variables, `PascalCase` for dataclasses and typed dictionaries, and uppercase names for module constants such as table headers.
