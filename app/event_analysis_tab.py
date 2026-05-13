@@ -19,6 +19,56 @@ fft = st.cache_data(ttl=timedelta(minutes=5))(nanopore_it.fft)
 downsample = st.cache_data(ttl=timedelta(minutes=5))(nanopore_it.downsample)
 
 
+def compute_frequency_spectrum(
+    values: npt.NDArray[np.float64],
+    *,
+    adc_samplerate: float,
+    max_points: int = 10000,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    finite_values = values[np.isfinite(values)]
+    if finite_values.size < 2:
+        return np.array([], dtype=np.float64), np.array([], dtype=np.float64)
+
+    freqs, spectrum = fft(finite_values, fs=int(adc_samplerate))
+    return downsample(freqs, spectrum, max_points=max_points)
+
+
+def compute_spectrum_difference(
+    *,
+    event_freqs: npt.NDArray[np.float64],
+    event_spectrum: npt.NDArray[np.float64],
+    baseline_freqs: npt.NDArray[np.float64],
+    baseline_spectrum: npt.NDArray[np.float64],
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    finite_event = np.isfinite(event_freqs) & np.isfinite(event_spectrum)
+    finite_baseline = np.isfinite(baseline_freqs) & np.isfinite(baseline_spectrum)
+    if np.count_nonzero(finite_event) < 1 or np.count_nonzero(finite_baseline) < 2:
+        return np.array([], dtype=np.float64), np.array([], dtype=np.float64)
+
+    event_freqs = event_freqs[finite_event]
+    event_spectrum = event_spectrum[finite_event]
+    baseline_freqs = baseline_freqs[finite_baseline]
+    baseline_spectrum = baseline_spectrum[finite_baseline]
+
+    baseline_order = np.argsort(baseline_freqs)
+    baseline_freqs = baseline_freqs[baseline_order]
+    baseline_spectrum = baseline_spectrum[baseline_order]
+
+    min_freq = float(baseline_freqs[0])
+    max_freq = float(baseline_freqs[-1])
+    event_mask = (event_freqs > 0) & (event_freqs >= min_freq) & (event_freqs <= max_freq)
+    if not np.any(event_mask):
+        return np.array([], dtype=np.float64), np.array([], dtype=np.float64)
+
+    difference_freqs = event_freqs[event_mask]
+    interpolated_baseline = np.interp(
+        difference_freqs,
+        baseline_freqs,
+        baseline_spectrum,
+    )
+    return difference_freqs, event_spectrum[event_mask] - interpolated_baseline
+
+
 @st.cache_data(max_entries=1)
 def draw_signal(
     signal: npt.NDArray[np.float64],
@@ -229,26 +279,28 @@ def render_event_analysis_tab(
         end = int(ev.end_point) + 1  # include end point
         without_events[start:end] = np.nan
     without_events = without_events[~np.isnan(without_events)]
-    baseline_spectr, baseline_freqs = fft(without_events, fs=int(adc_samplerate))
-    baseline_spectr, baseline_freqs = downsample(
-        baseline_freqs,
-        baseline_spectr,
-        max_points=10000,
+    baseline_freqs, baseline_spectrum = compute_frequency_spectrum(
+        without_events,
+        adc_samplerate=adc_samplerate,
     )
     start, end = int(event.start_point) + 1, int(event.end_point)
     event_signal = signal[start:end]
-    event_spectr, event_freqs = fft(event_signal, fs=int(adc_samplerate))
-    event_spectr, event_freqs = downsample(
-        event_freqs,
-        event_spectr,
-        max_points=10000,
+    event_freqs, event_spectrum = compute_frequency_spectrum(
+        event_signal,
+        adc_samplerate=adc_samplerate,
+    )
+    difference_freqs, difference_spectrum = compute_spectrum_difference(
+        event_freqs=event_freqs,
+        event_spectrum=event_spectrum,
+        baseline_freqs=baseline_freqs,
+        baseline_spectrum=baseline_spectrum,
     )
 
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
             x=baseline_freqs,
-            y=baseline_spectr,
+            y=baseline_spectrum,
             mode="lines",
             line=LINEAR_LINE,
             name="Baseline Spectrum",
@@ -257,7 +309,7 @@ def render_event_analysis_tab(
     fig.add_trace(
         go.Scatter(
             x=event_freqs,
-            y=event_spectr,
+            y=event_spectrum,
             mode="lines",
             line=LINEAR_LINE,
             name="Event Spectrum",
@@ -269,6 +321,30 @@ def render_event_analysis_tab(
         yaxis_title="Magnitude",
         xaxis={"showgrid": True, "type": "log"},
         yaxis={"showgrid": True, "type": "log"},
+    )
+    st.plotly_chart(fig, width="stretch")
+
+    if difference_freqs.size == 0:
+        st.info("Spectrum difference is unavailable for this event.")
+        return selected_event_index
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=difference_freqs,
+            y=difference_spectrum,
+            mode="lines",
+            line=LINEAR_LINE,
+            name="Event - Baseline",
+        )
+    )
+    fig.add_hline(y=0, line_dash="dash", line_color="gray")
+    fig.update_layout(
+        title="Frequency Spectrum Difference (Event - Baseline)",
+        xaxis_title="Frequency (Hz)",
+        yaxis_title="Magnitude Difference",
+        xaxis={"showgrid": True, "type": "log"},
+        yaxis={"showgrid": True},
     )
     st.plotly_chart(fig, width="stretch")
     return selected_event_index
